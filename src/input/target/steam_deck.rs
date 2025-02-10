@@ -831,6 +831,18 @@ impl TargetInputDevice for SteamDeckDevice {
         log::debug!("Finished stopping");
         Ok(())
     }
+
+    /// Clear any local state on the target device.
+    fn clear_state(&mut self) {
+        let caps = self.get_capabilities().unwrap_or_else(|_| Vec::new());
+        for cap in caps {
+            let ev = NativeEvent::new(
+                cap,
+                InputValue::None,
+            );
+            let _ = self.write_event(ev);
+        }
+    }
 }
 
 impl TargetOutputDevice for SteamDeckDevice {

@@ -218,6 +218,15 @@ impl TargetInputDevice for MouseDevice {
     fn clear_state(&mut self) {
         self.state.mouse_velocity = (0.0, 0.0);
         self.state.mouse_remainder = (0.0, 0.0);
+        
+        let caps = self.get_capabilities().unwrap_or_else(|_| Vec::new());
+        for cap in caps {
+            let ev = NativeEvent::new(
+                cap,
+                InputValue::None,
+            );
+            let _ = self.write_event(ev);
+        }
     }
 }
 

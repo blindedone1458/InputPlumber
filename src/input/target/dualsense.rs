@@ -979,6 +979,18 @@ impl TargetInputDevice for DualSenseDevice {
         let _ = self.device.destroy();
         Ok(())
     }
+
+    /// Clear any local state on the target device.
+    fn clear_state(&mut self) {
+        let caps = self.get_capabilities().unwrap_or_else(|_| Vec::new());
+        for cap in caps {
+            let ev = NativeEvent::new(
+                cap,
+                InputValue::None,
+            );
+            let _ = self.write_event(ev);
+        }
+    }
 }
 
 impl TargetOutputDevice for DualSenseDevice {
