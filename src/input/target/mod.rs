@@ -15,7 +15,7 @@ use crate::dbus::interface::target::{gamepad::TargetGamepadInterface, TargetInte
 use super::{
     capability::Capability,
     composite_device::client::{ClientError, CompositeDeviceClient},
-    event::native::{NativeEvent, ScheduledNativeEvent},
+    event::{native::{NativeEvent, ScheduledNativeEvent}, value::InputValue},
     output_capability::OutputCapability,
     output_event::OutputEvent,
 };
@@ -309,7 +309,16 @@ pub trait TargetInputDevice {
     /// Clear any local state on the target device. This is typically called
     /// whenever the composite device has entered intercept mode to indicate
     /// that the target device should stop sending input.
-    fn clear_state(&mut self) {}
+    fn clear_state(&mut self) {
+        let caps = self.get_capabilities().unwrap_or_else(|_| Vec::new());
+        for cap in caps {
+            let ev = NativeEvent::new(
+                cap,
+                InputValue::None,
+            );
+            let _ = self.write_event(ev);
+        }
+    }
 
     /// Called when the target device has been attached to a composite device.
     fn on_composite_device_attached(
