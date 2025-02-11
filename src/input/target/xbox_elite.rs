@@ -233,7 +233,10 @@ impl TargetInputDevice for XboxEliteController {
 
     /// Clear any local state on the target device.
     fn clear_state(&mut self) {
-        let caps = self.get_capabilities().unwrap_or_else(|_| Vec::new());
+        let caps = self.get_capabilities().unwrap_or_else(|_| {
+            log::error!("No target device capabilities found while clearing state.");
+            Vec::new()
+        });
         for cap in caps {
             let ev = NativeEvent::new(
                 cap,
