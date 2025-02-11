@@ -242,7 +242,7 @@ impl TargetInputDevice for XboxEliteController {
                 cap,
                 InputValue::None,
             );
-            let _ = self.write_event(ev);
+            self.queued_events.push(ScheduledNativeEvent::new(ev, Duration::from_millis(0)));
         }
     }
 }
