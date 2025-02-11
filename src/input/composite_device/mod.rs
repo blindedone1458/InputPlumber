@@ -400,7 +400,6 @@ impl CompositeDevice {
                     }
                     CompositeCommand::SourceDeviceStopped(device) => {
                         log::debug!("Detected source device stopped: {}", device.devnode());
-                        devices_removed = true;
                         if let Err(e) = self.on_source_device_removed(device).await {
                             log::error!("Failed to remove source device: {:?}", e);
                         }
