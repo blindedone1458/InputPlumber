@@ -10,7 +10,7 @@ use crate::{
     dbus::interface::target::{keyboard::TargetKeyboardInterface, TargetInterface},
     input::{
         capability::{Capability, Keyboard},
-        event::{evdev::EvdevEvent, native::NativeEvent, value::InputValue},
+        event::{evdev::EvdevEvent, native::NativeEvent},
     },
 };
 

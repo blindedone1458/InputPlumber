@@ -1,5 +1,5 @@
 //! Emulates a Horipad Steam Controller as a target input device.
-use std::{cmp::Ordering, error::Error, fmt::Debug, fs::File};
+use std::{cmp::Ordering, error::Error, fmt::Debug, fs::File, time::Duration};
 
 use packed_struct::prelude::*;
 use uhid_virt::{Bus, CreateParams, StreamError, UHIDDevice};
