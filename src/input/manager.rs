@@ -1014,13 +1014,15 @@ impl Manager {
                     let device_info = udev::get_device(dev_path.clone()).await?;
 
                     // Check if the virtual device is using the bluetooth bus
-                    // TODO: Can we get properties from UdevDevice::get_attribute_from_tree?
+                    let bus_id = device.get_attribute_from_tree("id/bustype");
                     let id_bus = device_info.properties.get("ID_BUS");
 
-                    log::debug!("Bus ID for {dev_path}: {id_bus:?}");
+                    log::debug!("Bus ID for {dev_path}: udev: {id_bus:?}, UdevDevice: {bus_id:?}");
                     let is_bluetooth = {
                         if let Some(bus) = id_bus {
                             bus == "bluetooth"
+                        } else if let Some(bus) = bus_id {
+                            bus == "0005"
                         } else {
                             false
                         }
