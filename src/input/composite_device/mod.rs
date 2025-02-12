@@ -315,11 +315,12 @@ impl CompositeDevice {
         // Set persist value from config if set, used to determine
         // if CompositeDevice self-closes after all SourceDevices have
         // been removed.
-        let persist = self.config
-                .options
-                .as_ref()
-                .map(|options| options.persist.unwrap_or(false))
-                .unwrap_or(false);
+        let persist = self
+            .config
+            .options
+            .as_ref()
+            .map(|options| options.persist.unwrap_or(false))
+            .unwrap_or(false);
 
         // Loop and listen for command events
         log::debug!("CompositeDevice started");
@@ -536,7 +537,6 @@ impl CompositeDevice {
                             log::error!("Failed to clear target device state {path}: {e:?}");
                         }
                     }
-
                 } else {
                     log::debug!("No source devices remain. Stopping CompositeDevice {dbus_path}");
                     break 'main;

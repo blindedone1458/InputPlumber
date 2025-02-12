@@ -227,11 +227,9 @@ impl TargetInputDevice for XBox360Controller {
             Vec::new()
         });
         for cap in caps {
-            let ev = NativeEvent::new(
-                cap,
-                InputValue::Bool(false),
-            );
-            self.queued_events.push(ScheduledNativeEvent::new(ev, Duration::from_millis(0)));
+            let ev = NativeEvent::new(cap, InputValue::Bool(false));
+            self.queued_events
+                .push(ScheduledNativeEvent::new(ev, Duration::from_millis(0)));
         }
     }
 }
