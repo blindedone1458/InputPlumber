@@ -229,7 +229,7 @@ impl TargetInputDevice for XBox360Controller {
         for cap in caps {
             let ev = NativeEvent::new(
                 cap,
-                InputValue::None,
+                InputValue::Bool(false),
             );
             self.queued_events.push(ScheduledNativeEvent::new(ev, Duration::from_millis(0)));
         }
