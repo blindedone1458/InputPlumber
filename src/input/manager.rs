@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ::procfs::CpuInfo;
 use ::udev::MonitorBuilder;
@@ -162,9 +162,9 @@ pub struct Manager {
     /// Mapping of target devices to their respective handles
     /// E.g. {"/org/shadowblip/InputPlumber/devices/target/dbus0": <Handle>}
     target_devices: HashMap<String, TargetDeviceClient>,
-    /// List of composite device dbus paths with gamepad devices in player order.
+    /// A managed list of composite device dbus paths with gamepad devices in player order.
     /// E.g. ["/org/shadowblip/InputPlumber/CompositeDevice0"]
-    target_gamepad_order: Vec<String>,
+    target_gamepad_order: TargetOrder,
     /// Defines whether or not InputPlumber should try to automatically manage all
     /// input devices that have a [CompositeDeviceConfig] definition
     manage_all_devices: bool,
@@ -204,7 +204,7 @@ impl Manager {
             composite_device_sources: HashMap::new(),
             composite_device_targets: HashMap::new(),
             manage_all_devices: false,
-            target_gamepad_order: vec![],
+            target_gamepad_order: TargetOrder::new(),
         }
     }
 
@@ -368,12 +368,8 @@ impl Manager {
                         continue;
                     }
 
-                    self.target_gamepad_order = self
-                        .target_gamepad_order
-                        .drain(..)
-                        .filter(|paf| paf.as_str() != device_path.as_str())
-                        .collect();
-                    log::info!("Gamepad order: {:?}", self.target_gamepad_order);
+                    self.target_gamepad_order.remove_target(&device_path);
+                    log::info!("Gamepad order: {:?}", self.target_gamepad_order.get_order());
                 }
                 ManagerCommand::DeviceAdded { device } => {
                     let dev_name = device.name();
@@ -433,6 +429,9 @@ impl Manager {
                 ManagerCommand::SystemSleep { sender } => {
                     log::info!("Preparing for system suspend");
 
+                    // Clear out any currently inactive CompositeDevices
+                    todo!();
+
                     // Call the suspend handler on each composite device and wait
                     // for a response.
                     let composite_devices = self.composite_devices.clone();
@@ -458,7 +457,7 @@ impl Manager {
                     // Call the resume handler on each composite device and wait
                     // for a response.
                     let composite_devices = self.composite_devices.clone();
-                    let gamepad_order = self.target_gamepad_order.clone();
+                    let gamepad_order = self.target_gamepad_order.get_order_clone();
                     tokio::task::spawn(async move {
                         // Resume any composite devices in gamepad order first
                         for path in gamepad_order {
@@ -498,7 +497,7 @@ impl Manager {
                 }
                 ManagerCommand::GetGamepadOrder { sender } => {
                     log::debug!("Request for gamepad order");
-                    let order = self.target_gamepad_order.clone();
+                    let order = self.target_gamepad_order.get_order_clone();
                     if let Err(e) = sender.send(order).await {
                         log::error!("Failed to send gamepad order: {e:?}");
                     }
@@ -656,14 +655,12 @@ impl Manager {
         };
 
         // If the target device is a gamepad, maintain the order in which it
-        // was connected.
-        if target_type.is_gamepad()
-            && !self
-                .target_gamepad_order
-                .contains(&composite_path.to_owned())
-        {
-            self.target_gamepad_order.push(composite_path.to_string());
-            log::info!("Gamepad order: {:?}", self.target_gamepad_order);
+        // was connected, with CompositeDevices containing active Sources
+        // ordered first.
+        if target_type.is_gamepad() {
+            self.target_gamepad_order
+                .add_target(&composite_path.to_string());
+            log::info!("Gamepad order: {:?}", self.target_gamepad_order.get_order());
         }
 
         // Send the attach command to the composite device
@@ -889,12 +886,8 @@ impl Manager {
         }
 
         // Remove the device from gamepad order
-        self.target_gamepad_order = self
-            .target_gamepad_order
-            .drain(..)
-            .filter(|paf| paf.as_str() != path.as_str())
-            .collect();
-        log::info!("Gamepad order: {:?}", self.target_gamepad_order);
+        self.target_gamepad_order.remove_target(&path);
+        log::info!("Gamepad order: {:?}", self.target_gamepad_order.get_order());
 
         // Remove the composite device from our list
         self.composite_devices.remove::<String>(&path);
@@ -1013,6 +1006,10 @@ impl Manager {
                 .composite_device_sources
                 .get_mut(&composite_id)
                 .unwrap();
+            if sources.is_empty() && self.target_gamepad_order.contains(&composite_id) {
+                self.target_gamepad_order.activate_target(&composite_id);
+                log::info!("Gamepad order: {:?}", self.target_gamepad_order.get_order());
+            }
             sources.push(source_device.clone());
             self.source_devices.insert(id, source_device.clone());
 
@@ -1119,6 +1116,12 @@ impl Manager {
             return Err(format!("Device {} not found in composite device sources", id).into());
         }
         sources.remove(idx.unwrap());
+        // If the list of SourceDevices is now empty, move the CompositeDevice
+        // to the end of the gamepad order.
+        if sources.is_empty() {
+            self.target_gamepad_order
+                .deactivate_target(composite_device_path);
+        }
         self.source_devices.remove(&id);
         self.source_device_dbus_paths.remove(&id);
         self.source_devices_used.remove(&id);
@@ -1782,17 +1785,9 @@ impl Manager {
     async fn set_gamepad_order(&mut self, order: Vec<String>) {
         log::info!("Setting player order to: {order:?}");
 
-        // Ensure the given paths are valid composite device paths
-        self.target_gamepad_order = order
-            .into_iter()
-            .filter(|path| {
-                let is_valid = self.composite_devices.contains_key(path);
-                if !is_valid {
-                    log::error!("Invalid composite device path to set gamepad order: {path}");
+        for returned_target in self.target_gamepad_order.set_order(order.iter().collect()) {
+            log::error!("Invalid composite device path to set gamepad order: {returned_target}");
                 }
-                is_valid
-            })
-            .collect();
 
         let manager_tx = self.tx.clone();
         tokio::task::spawn(async move {
@@ -1832,5 +1827,164 @@ impl Manager {
         });
 
         //
+    }
+}
+
+struct TargetOrder {
+    tracked_targets: HashMap<String, Instant>,
+    active_target_order: Vec<String>,
+    inactive_targets: Vec<String>,
+}
+
+impl TargetOrder {
+    /// Create a new empty [TargetOrder]
+    fn new() -> Self {
+        Self {
+            tracked_targets: HashMap::new(),
+            active_target_order: Vec::new(),
+            inactive_targets: Vec::new(),
+        }
+    }
+
+    /// Removes the target from the order and the tracked list.
+    fn remove_target(&mut self, target_device: &String) {
+        self.tracked_targets.remove(target_device);
+        self.inactive_targets.retain(|t| t != target_device);
+        self.active_target_order.retain(|t| t != target_device);
+    }
+
+    /// Adds the target to the tracked list or will update
+    /// its timestamp and then will be activated.
+    fn add_target(&mut self, target_device: &String) {
+        self.tracked_targets
+            .insert(target_device.clone(), Instant::now());
+        self.activate_target(target_device);
+    }
+
+    /// Will return the target if tracked, otherwise returns [`Option::None`]
+    fn get_target(&self, target_device: &String) -> Option<&String> {
+        if let Some((target, _ts)) = self.tracked_targets.get_key_value(target_device) {
+            Some(target)
+        } else {
+            None
+        }
+    }
+
+    /// Returns `true` if the target is tracked.
+    fn contains(&self, target_device: &String) -> bool {
+        self.get_target(target_device).is_some()
+    }
+
+    /// Moves a tracked target to the active list, ordered by its initial
+    /// timestamp.
+    ///
+    /// Returns `false` if target isn't currently tracked.
+    fn activate_target(&mut self, target_device: &String) -> bool {
+        // Verify target_device to activate exists in our tracked list
+        let Some((target, ts)) = self.tracked_targets.get_key_value(target_device) else {
+            // Not a tracked target
+            return false;
+        };
+        // Remove target from inactive targets list
+        self.inactive_targets.retain(|t| t != target);
+        // Compare target timestamp to other active timestamps
+        // If already active, no need to update list
+        match self
+            .active_target_order
+            .binary_search_by(|t| match self.tracked_targets.get(t) {
+                Some(i) => i.cmp(ts),
+                None => std::cmp::Ordering::Less,
+            }) {
+            // Ok() means we found the same Instant so don't update active_order
+            Ok(_) => {}
+            // Err() gives us the index we should insert the now active target_device
+            Err(idx) => self.active_target_order.insert(idx, target.clone()),
+        }
+
+        true
+    }
+
+    /// Moves a tracked target to the inactive list, unordered.
+    ///
+    /// Returns `false` if target isn't currently tracked.
+    fn deactivate_target(&mut self, target_device: &String) -> bool {
+        // Verify target_device to deactivate exists in our tracked list
+        let Some((target, _ts)) = self.tracked_targets.get_key_value(target_device) else {
+            // Not a tracked target
+            return false;
+        };
+        self.active_target_order.retain(|t| t != target);
+        self.inactive_targets.push(target.clone());
+
+        true
+    }
+
+    /// Returns all tracked targets, active and inactive.
+    ///
+    /// Order is: Active by timestamp then Inactive.
+    fn get_order(&self) -> Vec<&String> {
+        self.active_target_order
+            .iter()
+            .chain(self.inactive_targets.iter())
+            .map(|t| t)
+            .collect()
+    }
+
+    /// Returns a copy of all tracked targets, active and inactive.
+    ///
+    /// Order is: Active by timestamp then Inactive.
+    fn get_order_clone(&self) -> Vec<String> {
+        self.active_target_order
+            .iter()
+            .chain(self.inactive_targets.iter())
+            .map(|t| t.clone())
+            .collect()
+    }
+
+    /// Specify an order of active targets. Will skip any targets
+    /// that are not currently tracked. Any targets that are tracked but not
+    /// specified will be deactivated.
+    ///
+    /// Returns a list of any targets that are not currently tracked.
+    /// An empty return simply means all targets are valid.
+    fn set_order(&mut self, target_order: Vec<&String>) -> Vec<String> {
+        let mut new_active_targets: Vec<String> = Vec::with_capacity(target_order.len());
+        let order = target_order
+            .iter()
+            .filter_map(|&target_device| {
+                if let Some(ts) = self.tracked_targets.get_mut(target_device) {
+                    *ts = Instant::now();
+                    new_active_targets.push(target_device.clone());
+                    None
+                } else {
+                    // Not a tracked target, retain for return
+                    Some(target_device.clone())
+                }
+            })
+            .collect();
+
+        if !new_active_targets.is_empty() {
+            self.inactive_targets = self
+                .tracked_targets
+                .keys()
+                .filter_map(|t| {
+                    if new_active_targets.contains(t) {
+                        None
+                    } else {
+                        Some(t.clone())
+                    }
+                })
+                .collect();
+            self.active_target_order = new_active_targets;
+        }
+
+        order
+    }
+}
+
+impl Default for TargetOrder {
+    /// Create a new empty [TargetOrder]
+    fn default() -> Self {
+        Self::new()
     }
 }
