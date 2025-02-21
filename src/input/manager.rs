@@ -429,9 +429,6 @@ impl Manager {
                 ManagerCommand::SystemSleep { sender } => {
                     log::info!("Preparing for system suspend");
 
-                    // Clear out any currently inactive CompositeDevices
-                    todo!();
-
                     // Call the suspend handler on each composite device and wait
                     // for a response.
                     let composite_devices = self.composite_devices.clone();
@@ -1787,7 +1784,7 @@ impl Manager {
 
         for returned_target in self.target_gamepad_order.set_order(order.iter().collect()) {
             log::error!("Invalid composite device path to set gamepad order: {returned_target}");
-                }
+        }
 
         let manager_tx = self.tx.clone();
         tokio::task::spawn(async move {
@@ -1833,7 +1830,6 @@ impl Manager {
 struct TargetOrder {
     tracked_targets: HashMap<String, Instant>,
     active_target_order: Vec<String>,
-    inactive_targets: Vec<String>,
 }
 
 impl TargetOrder {
@@ -1842,14 +1838,12 @@ impl TargetOrder {
         Self {
             tracked_targets: HashMap::new(),
             active_target_order: Vec::new(),
-            inactive_targets: Vec::new(),
         }
     }
 
     /// Removes the target from the order and the tracked list.
     fn remove_target(&mut self, target_device: &String) {
         self.tracked_targets.remove(target_device);
-        self.inactive_targets.retain(|t| t != target_device);
         self.active_target_order.retain(|t| t != target_device);
     }
 
@@ -1875,7 +1869,7 @@ impl TargetOrder {
         self.get_target(target_device).is_some()
     }
 
-    /// Moves a tracked target to the active list, ordered by its initial
+    /// Adds a tracked target to the active list, ordered by its initial
     /// timestamp.
     ///
     /// Returns `false` if target isn't currently tracked.
@@ -1885,8 +1879,6 @@ impl TargetOrder {
             // Not a tracked target
             return false;
         };
-        // Remove target from inactive targets list
-        self.inactive_targets.retain(|t| t != target);
         // Compare target timestamp to other active timestamps
         // If already active, no need to update list
         match self
@@ -1904,7 +1896,7 @@ impl TargetOrder {
         true
     }
 
-    /// Moves a tracked target to the inactive list, unordered.
+    /// Removes a tracked target from the active list.
     ///
     /// Returns `false` if target isn't currently tracked.
     fn deactivate_target(&mut self, target_device: &String) -> bool {
@@ -1914,32 +1906,27 @@ impl TargetOrder {
             return false;
         };
         self.active_target_order.retain(|t| t != target);
-        self.inactive_targets.push(target.clone());
 
         true
     }
 
-    /// Returns all tracked targets, active and inactive.
+    /// Returns the active order.
     ///
     /// Order is: Active by timestamp then Inactive.
     fn get_order(&self) -> Vec<&String> {
         self.active_target_order
             .iter()
-            .chain(self.inactive_targets.iter())
-            .map(|t| t)
             .collect()
     }
 
-    /// Returns a copy of all tracked targets, active and inactive.
+    /// Returns a clone of the active order.
     ///
     /// Order is: Active by timestamp then Inactive.
     fn get_order_clone(&self) -> Vec<String> {
-        self.active_target_order
-            .iter()
-            .chain(self.inactive_targets.iter())
-            .map(|t| t.clone())
-            .collect()
+        self.active_target_order.clone()
     }
+
+    
 
     /// Specify an order of active targets. Will skip any targets
     /// that are not currently tracked. Any targets that are tracked but not
@@ -1949,7 +1936,7 @@ impl TargetOrder {
     /// An empty return simply means all targets are valid.
     fn set_order(&mut self, target_order: Vec<&String>) -> Vec<String> {
         let mut new_active_targets: Vec<String> = Vec::with_capacity(target_order.len());
-        let order = target_order
+        let not_tracked = target_order
             .iter()
             .filter_map(|&target_device| {
                 if let Some(ts) = self.tracked_targets.get_mut(target_device) {
@@ -1964,21 +1951,10 @@ impl TargetOrder {
             .collect();
 
         if !new_active_targets.is_empty() {
-            self.inactive_targets = self
-                .tracked_targets
-                .keys()
-                .filter_map(|t| {
-                    if new_active_targets.contains(t) {
-                        None
-                    } else {
-                        Some(t.clone())
-                    }
-                })
-                .collect();
             self.active_target_order = new_active_targets;
         }
 
-        order
+        not_tracked
     }
 }
 
