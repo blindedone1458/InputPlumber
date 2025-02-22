@@ -471,11 +471,17 @@ impl CompositeDevice {
                         log::debug!("Got STOP signal. Stopping CompositeDevice: {dbus_path}");
                         break 'main;
                     }
-                    CompositeCommand::Suspend(sender) => {
-                        log::info!("Preparing for system suspend for: {dbus_path}");
-                        self.handle_suspend().await;
-                        if let Err(e) = sender.send(()).await {
-                            log::error!("Failed to send suspend response: {e:?}");
+                    CompositeCommand::Suspend(sender) => {                        
+                        if self.source_devices_used.is_empty() {
+                            log::info!("Received suspend request for inactive CompositeDevice, stopping instead. CompositeDevice: {dbus_path}");
+                            _ = sender.send(()).await;
+                            break 'main;
+                        } else {
+                            log::info!("Preparing for system suspend for: {dbus_path}");
+                            self.handle_suspend().await;
+                            if let Err(e) = sender.send(()).await {
+                                log::error!("Failed to send suspend response: {e:?}");
+                            }
                         }
                     }
                     CompositeCommand::Resume(sender) => {
