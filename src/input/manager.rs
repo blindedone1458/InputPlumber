@@ -1118,6 +1118,7 @@ impl Manager {
         if sources.is_empty() {
             self.target_gamepad_order
                 .deactivate_target(composite_device_path);
+            log::info!("Gamepad order: {:?}", self.target_gamepad_order.get_order());
         }
         self.source_devices.remove(&id);
         self.source_device_dbus_paths.remove(&id);
@@ -1786,6 +1787,8 @@ impl Manager {
             log::error!("Invalid composite device path to set gamepad order: {returned_target}");
         }
 
+        log::info!("Gamepad order: {:?}", self.target_gamepad_order.get_order());
+
         let manager_tx = self.tx.clone();
         tokio::task::spawn(async move {
             // Send suspend command to manager
@@ -1827,6 +1830,11 @@ impl Manager {
     }
 }
 
+/// Manages the Player order of target gamepads identified by their
+/// composite device path.
+/// 
+/// The [TargetOrder] will sort the targets by the order they were
+/// activated, based on an `[Instant]` defined timestamp.
 struct TargetOrder {
     tracked_targets: HashMap<String, Instant>,
     active_target_order: Vec<String>,
@@ -1881,16 +1889,25 @@ impl TargetOrder {
         };
         // Compare target timestamp to other active timestamps
         // If already active, no need to update list
-        match self
-            .active_target_order
-            .binary_search_by(|t| match self.tracked_targets.get(t) {
-                Some(i) => i.cmp(ts),
-                None => std::cmp::Ordering::Less,
-            }) {
-            // Ok() means we found the same Instant so don't update active_order
-            Ok(_) => {}
-            // Err() gives us the index we should insert the now active target_device
-            Err(idx) => self.active_target_order.insert(idx, target.clone()),
+        if self.active_target_order.iter().position(|t| t == target).is_none() {
+            let mut idx: usize;
+            match self
+                .active_target_order
+                .binary_search_by(|t| {
+                    match self.tracked_targets.get(t) {
+                        Some(i) => i.cmp(ts),
+                        None => std::cmp::Ordering::Less,
+                    }
+                }
+            ) {
+                // Ok() means we found the same Instant, which may rarely occur so we insert after
+                // Err() gives us the index we should insert at based on timestamp ordering
+                Ok(i)  => idx = i + 1,
+                Err(i) => idx = i,
+            }
+
+            if idx > self.active_target_order.len() { idx = self.active_target_order.len() }
+            self.active_target_order.insert(idx, target.clone())
         }
 
         true
