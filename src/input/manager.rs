@@ -971,7 +971,7 @@ impl Manager {
                             "Ignoring device {:?}, not adding to composite device: {composite_device}",
                             source_device
                         );
-                        break 'start;
+                        continue 'start;
                     }
 
                     // Check if the composite device has to be unique (default to being unique)
@@ -980,7 +980,7 @@ impl Manager {
                             "Found unique device {:?}, not adding to composite device {composite_device}",
                             source_device
                         );
-                        break 'start;
+                        continue 'start;
                     }
                 }
             }
