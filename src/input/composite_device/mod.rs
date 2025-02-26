@@ -34,7 +34,9 @@ use crate::{
             Event,
         },
         output_event::UinputOutputEvent,
-        source::{evdev::EventDevice, hidraw::HidRawDevice, iio::IioDevice, SourceDevice},
+        source::{
+            evdev::EventDevice, hidraw::HidRawDevice, iio::IioDevice, led::LedDevice, SourceDevice,
+        },
     },
     udev::{device::UdevDevice, hide_device, unhide_device},
 };
@@ -337,7 +339,7 @@ impl CompositeDevice {
                     }
                     CompositeCommand::SetInterceptMode(mode) => self.set_intercept_mode(mode).await,
                     CompositeCommand::GetInterceptMode(sender) => {
-                        if let Err(e) = sender.send(self.intercept_mode.clone()).await {
+                        if let Err(e) = sender.send(self.intercept_mode).await {
                             log::error!("Failed to send intercept mode: {:?}", e);
                         }
                     }
@@ -408,7 +410,7 @@ impl CompositeDevice {
                         let profile = match DeviceProfile::from_yaml(profile) {
                             Ok(p) => p,
                             Err(e) => {
-                                if let Err(er) = sender.send(Err(e.to_string().into())).await {
+                                if let Err(er) = sender.send(Err(e.to_string())).await {
                                     log::error!("Failed to send failed to load profile: {er:?}");
                                 }
                                 continue;
@@ -427,7 +429,7 @@ impl CompositeDevice {
                         let profile = match DeviceProfile::from_yaml_file(path) {
                             Ok(p) => p,
                             Err(e) => {
-                                if let Err(er) = sender.send(Err(e.to_string().into())).await {
+                                if let Err(er) = sender.send(Err(e.to_string())).await {
                                     log::error!("Failed to send failed to load profile: {er:?}");
                                 }
                                 continue;
@@ -440,6 +442,13 @@ impl CompositeDevice {
                         if let Err(e) = sender.send(result).await {
                             log::error!("Failed to send load profile result: {:?}", e);
                         }
+                    }
+                    CompositeCommand::UpdateSourceCapabilities(_device_id, _capabilities) => (),
+                    CompositeCommand::UpdateTargetCapabilities(dbus_path, capabilities) => {
+                        log::debug!(
+                            "Updating target capabilities for '{dbus_path}': {capabilities:?}"
+                        );
+                        self.update_target_capabilities(dbus_path, capabilities);
                     }
                     CompositeCommand::WriteEvent(event) => {
                         if let Err(e) = self.write_event(event).await {
@@ -1474,6 +1483,11 @@ impl CompositeDevice {
                 let device = IioDevice::new(device, self.client(), source_config.clone())?;
                 SourceDevice::Iio(device)
             }
+            "leds" => {
+                log::debug!("Adding source device: {:?}", device.name());
+                let device = LedDevice::new(device, self.client(), source_config.clone())?;
+                SourceDevice::Led(device)
+            }
             _ => {
                 return Err(format!(
                     "Unspported subsystem: {subsystem}, unable to add source device {}",
@@ -1960,6 +1974,23 @@ impl CompositeDevice {
         Ok(target_caps)
     }
 
+    /// Update the target capabilities of the given target device
+    fn update_target_capabilities(&mut self, dbus_path: String, capabilities: HashSet<Capability>) {
+        // Track the target device by capabilities it has
+        for cap in capabilities.into_iter() {
+            self.target_devices_by_capability
+                .entry(cap)
+                .and_modify(|devices| {
+                    devices.insert(dbus_path.clone());
+                })
+                .or_insert_with(|| {
+                    let mut devices = HashSet::new();
+                    devices.insert(dbus_path.clone());
+                    devices
+                });
+        }
+    }
+
     /// Attach the given target devices to the composite device
     async fn attach_target_devices(
         &mut self,
@@ -2034,7 +2065,7 @@ impl CompositeDevice {
             // Emit the target devices changed signal
             let iface = iface_ref.get().await;
             if let Err(e) = iface
-                .target_devices_changed(iface_ref.signal_context())
+                .target_devices_changed(iface_ref.signal_emitter())
                 .await
             {
                 log::error!("Failed to send target devices changed signal: {e:?}");
@@ -2067,7 +2098,7 @@ impl CompositeDevice {
             // Emit the target devices changed signal
             let iface = iface_ref.get().await;
             if let Err(e) = iface
-                .source_device_paths_changed(iface_ref.signal_context())
+                .source_device_paths_changed(iface_ref.signal_emitter())
                 .await
             {
                 log::error!("Failed to send source devices changed signal: {e:?}");
