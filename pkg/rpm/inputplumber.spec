@@ -1,7 +1,7 @@
 %global _name   inputplumber
 
 Name:           inputplumber
-Version:        0.49.2
+Version:        0.52.1
 Release:        0%{?dist}
 Summary:        InputPlumber is an open source input routing and control daemon for Linux. It can be used to combine any number of input devices (like gamepads, mice, and keyboards) and translate their input to a variety of virtual device formats.
 
@@ -53,8 +53,8 @@ systemctl enable inputplumber.service
 systemctl start inputplumber.service
 
 %preun
-systemctl stop inputplumber.servce
-systemctl disable inputplumber.servce
+systemctl stop inputplumber.service
+systemctl disable inputplumber.service
 %systemd_preun inputplumber.service
 
 %files

@@ -15,7 +15,9 @@ use super::{
 
 // Hardware ID's
 pub const VID: u16 = 0x1a86;
-pub const PID: u16 = 0xe310;
+pub const XINPUT_PID: u16 = 0xe310;
+pub const DINPUT_PID: u16 = 0xe311;
+pub const PIDS: [u16; 2] = [XINPUT_PID, DINPUT_PID];
 // Input report sizes
 const XINPUT_PACKET_SIZE: usize = 32;
 const INERTIAL_PACKET_SIZE: usize = 9;
@@ -50,7 +52,7 @@ impl Driver {
         let api = hidapi::HidApi::new()?;
         let device = api.open_path(&path)?;
         let info = device.get_device_info()?;
-        if info.vendor_id() != VID || info.product_id() != PID {
+        if info.vendor_id() != VID || !PIDS.contains(&info.product_id()) {
             return Err(format!("Device '{fmtpath}' is not a Legion Go S Controller").into());
         }
         Ok(Self {
@@ -109,9 +111,11 @@ impl Driver {
         l_motor_speed: u8,
         r_motor_speed: u8,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut report = RumbleOutputDataReport::default();
-        report.l_motor_speed = l_motor_speed;
-        report.r_motor_speed = r_motor_speed;
+        let report = RumbleOutputDataReport {
+            l_motor_speed,
+            r_motor_speed,
+            ..Default::default()
+        };
         log::debug!("Got rumble event: {report:?}");
 
         let buf = report.pack()?;
@@ -126,10 +130,10 @@ impl Driver {
     ) -> Result<Vec<Event>, Box<dyn Error + Send + Sync>> {
         let input_report = XInputDataReport::unpack(&buf)?;
 
-        // Hacky workaround. When the gyro device is grabbed the XInputDataReport is full of
-        // garbage. Since it doesn't have a report_id we cant reject it. This only seems to hapen
-        // one time, so we can save a lot of checks in the future if we clear a bool once it
-        // happens.
+        // Hacky workaround. When the gyro and touch devices are grabbed the XInputDataReport is
+        // full of garbage. Since it doesn't have a report_id we cant reject it. This only seems
+        // to happen one time for the first device grabbed, so we can save a lot of checks in the
+        // future if we clear a bool once it happens.
         if !self.bad_data_passed && input_report.is_bad_data() {
             log::debug!("Got bad XInputDataReport, regecting it.");
             self.bad_data_passed = true;

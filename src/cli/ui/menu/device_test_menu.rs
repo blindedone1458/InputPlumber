@@ -296,8 +296,12 @@ impl DeviceTestMenu {
         let inside_block = block.inner(area);
         block.render(area, buf);
 
+        // Calculate the number of rows/columns based on the number of
+        // ui elements.
+        let (columns, rows) = calculate_rows_columns(self.ui_buttons.len(), 9.0, 5.0);
+
         // Define the grid for the buttons
-        let cells = create_grid(inside_block, 5, 9);
+        let cells = create_grid(inside_block, rows, columns);
 
         // Render each gauge
         for (btn, area) in self.ui_buttons.iter().zip(cells.iter()) {
@@ -314,8 +318,12 @@ impl DeviceTestMenu {
         let inside_block = block.inner(area);
         block.render(area, buf);
 
+        // Calculate the number of rows/columns based on the number of
+        // ui elements.
+        let (columns, rows) = calculate_rows_columns(self.ui_triggers.len(), 1.0, 2.0);
+
         // Define the grid for the widgets
-        let cells = create_grid(inside_block, 4, 2);
+        let cells = create_grid(inside_block, rows, columns);
 
         // Render each gauge
         for (widget, area) in self.ui_triggers.iter().zip(cells.iter()) {
@@ -332,8 +340,12 @@ impl DeviceTestMenu {
         let inside_block = block.inner(area);
         block.render(area, buf);
 
+        // Calculate the number of rows/columns based on the number of
+        // ui elements.
+        let (columns, rows) = calculate_rows_columns(self.ui_axes.len(), 2.0, 1.0);
+
         // Define the grid for the buttons
-        let cells = create_grid(inside_block, 1, 2);
+        let cells = create_grid(inside_block, rows, columns);
 
         // Render each widget
         for (widget, area) in self.ui_axes.iter().zip(cells.iter()) {
@@ -350,7 +362,11 @@ impl DeviceTestMenu {
         let inside_block = block.inner(area);
         block.render(area, buf);
 
-        let cells = create_grid(inside_block, 1, 2);
+        // Calculate the number of rows/columns based on the number of
+        // ui elements.
+        let (columns, rows) = calculate_rows_columns(self.ui_gyro.len(), 2.0, 1.0);
+
+        let cells = create_grid(inside_block, rows, columns);
 
         // Render each gauge
         for (widget, area) in self.ui_gyro.iter().zip(cells.iter()) {
@@ -367,8 +383,12 @@ impl DeviceTestMenu {
         let inside_block = block.inner(area);
         block.render(area, buf);
 
+        // Calculate the number of rows/columns based on the number of
+        // ui elements.
+        let (columns, rows) = calculate_rows_columns(self.ui_touch.len(), 2.0, 1.0);
+
         // Define the grid for the widgets
-        let cells = create_grid(inside_block, 1, 2);
+        let cells = create_grid(inside_block, rows, columns);
 
         // Render each gauge
         for (widget, area) in self.ui_touch.iter().zip(cells.iter()) {
@@ -419,21 +439,29 @@ impl MenuWidget for DeviceTestMenu {
             };
 
             for cap in capability_report.get_capabilities() {
+                let label = format!("{:?}", cap.capability);
+                let label = label
+                    .trim_start_matches("GamepadButton")
+                    .trim_start_matches("GamepadAxis")
+                    .trim_start_matches("GamepadTrigger")
+                    .trim_start_matches("Gamepad")
+                    .trim_start_matches("Touchpad")
+                    .trim_start_matches("Touchscreen")
+                    .trim_start_matches("Mouse")
+                    .trim_start_matches("Keyboard");
+
                 match cap.value_type {
                     ValueType::None => (),
                     ValueType::Bool => {
-                        let label = format!("{:?}", cap.capability);
-                        let button = ButtonGauge::new(cap.capability, label.as_str());
+                        let button = ButtonGauge::new(cap.capability, label);
                         self.ui_buttons.push(button);
                     }
                     ValueType::UInt8 => {
-                        let label = format!("{:?}", cap.capability);
-                        let trigger = TriggerGauge::new(cap.capability, label.as_str());
+                        let trigger = TriggerGauge::new(cap.capability, label);
                         self.ui_triggers.push(trigger);
                     }
                     ValueType::UInt16 => {
-                        let label = format!("{:?}", cap.capability);
-                        let trigger = TriggerGauge::new(cap.capability, label.as_str());
+                        let trigger = TriggerGauge::new(cap.capability, label);
                         self.ui_triggers.push(trigger);
                     }
                     ValueType::UInt32 => (),
@@ -446,14 +474,12 @@ impl MenuWidget for DeviceTestMenu {
                     ValueType::UInt16Vector2 => match cap.capability {
                         InputCapability::GamepadAxisLeftStick
                         | InputCapability::GamepadAxisRightStick => {
-                            let label = format!("{:?}", cap.capability);
-                            let gauge = AxisGauge::new(cap.capability, label.as_str());
+                            let gauge = AxisGauge::new(cap.capability, label);
                             self.ui_axes.push(gauge);
                         }
                         // Assume touch for everything else
                         _ => {
-                            let label = format!("{:?}", cap.capability);
-                            let gauge = TouchGauge::new(cap.capability, label.as_str());
+                            let gauge = TouchGauge::new(cap.capability, label);
                             self.ui_touch.push(gauge);
                         }
                     },
@@ -469,15 +495,13 @@ impl MenuWidget for DeviceTestMenu {
                     ValueType::UInt64Vector3 => (),
                     ValueType::Int8Vector3 => (),
                     ValueType::Int16Vector3 => {
-                        let label = format!("{:?}", cap.capability);
-                        let gauge = GyroGauge::new(cap.capability, label.as_str());
+                        let gauge = GyroGauge::new(cap.capability, label);
                         self.ui_gyro.push(gauge);
                     }
                     ValueType::Int32Vector3 => (),
                     ValueType::Int64Vector3 => (),
                     ValueType::Touch => {
-                        let label = format!("{:?}", cap.capability);
-                        let gauge = TouchGauge::new(cap.capability, label.as_str());
+                        let gauge = TouchGauge::new(cap.capability, label);
                         self.ui_touch.push(gauge);
                     }
                 }
@@ -522,31 +546,38 @@ impl MenuWidget for DeviceTestMenu {
         // Update the interface with the values
         let capabilities = capability_report.get_capabilities();
         for (cap, value) in capabilities.iter().zip(values.iter()) {
+            let label = format!("{:?}", cap.capability);
+            let label = label
+                .trim_start_matches("GamepadButton")
+                .trim_start_matches("GamepadAxis")
+                .trim_start_matches("GamepadTrigger")
+                .trim_start_matches("Gamepad")
+                .trim_start_matches("Touchpad")
+                .trim_start_matches("Touchscreen")
+                .trim_start_matches("Mouse")
+                .trim_start_matches("Keyboard");
+
             match value {
                 Value::None => (),
                 Value::Bool(value) => {
-                    let label = format!("{:?}", cap.capability);
-                    let mut button = ButtonGauge::new(cap.capability, label.as_str());
+                    let mut button = ButtonGauge::new(cap.capability, label);
                     button.set_value(value.value);
                     self.ui_buttons.push(button);
                 }
                 Value::UInt8(value) => {
-                    let label = format!("{:?}", cap.capability);
-                    let mut trigger = TriggerGauge::new(cap.capability, label.as_str());
+                    let mut trigger = TriggerGauge::new(cap.capability, label);
                     trigger.set_value(value.value as f64 / u8::MAX as f64);
                     self.ui_triggers.push(trigger);
                 }
                 Value::UInt16(value) => {
-                    let label = format!("{:?}", cap.capability);
-                    let mut trigger = TriggerGauge::new(cap.capability, label.as_str());
+                    let mut trigger = TriggerGauge::new(cap.capability, label);
                     trigger.set_value(value.value as f64 / u16::MAX as f64);
                     self.ui_triggers.push(trigger);
                 }
                 Value::UInt16Vector2(value) => match cap.capability {
                     InputCapability::GamepadAxisLeftStick
                     | InputCapability::GamepadAxisRightStick => {
-                        let label = format!("{:?}", cap.capability);
-                        let mut gauge = AxisGauge::new(cap.capability, label.as_str());
+                        let mut gauge = AxisGauge::new(cap.capability, label);
                         let (x, y) = {
                             let x = value.x as f64 / u16::MAX as f64;
                             // Convert from 0.0 - 1.0 to -1.0 - 1.0
@@ -562,8 +593,7 @@ impl MenuWidget for DeviceTestMenu {
                     }
                     // Assume touch for everything else
                     _ => {
-                        let label = format!("{:?}", cap.capability);
-                        let mut gauge = TouchGauge::new(cap.capability, label.as_str());
+                        let mut gauge = TouchGauge::new(cap.capability, label);
                         let (x, y) = {
                             let x = value.x as f64 / u16::MAX as f64;
                             let y = value.y as f64 / u16::MAX as f64;
@@ -574,8 +604,7 @@ impl MenuWidget for DeviceTestMenu {
                     }
                 },
                 Value::Int16Vector3(value) => {
-                    let label = format!("{:?}", cap.capability);
-                    let mut gauge = GyroGauge::new(cap.capability, label.as_str());
+                    let mut gauge = GyroGauge::new(cap.capability, label);
                     //let x = value.x / i16::MAX;
                     //let y = value.y / i16::MAX;
                     //let z = value.z / i16::MAX;
@@ -584,8 +613,7 @@ impl MenuWidget for DeviceTestMenu {
                     self.ui_gyro.push(gauge);
                 }
                 Value::Touch(value) => {
-                    let label = format!("{:?}", cap.capability);
-                    let mut gauge = TouchGauge::new(cap.capability, label.as_str());
+                    let mut gauge = TouchGauge::new(cap.capability, label);
                     let (x, y) = {
                         let x = value.x as f64 / u16::MAX as f64;
                         let y = value.y as f64 / u16::MAX as f64;
@@ -630,7 +658,7 @@ impl Widget for &DeviceTestMenu {
         // Split the area into two parts vertically
         let outer_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+            .constraints(vec![Constraint::Percentage(28), Constraint::Percentage(72)])
             .split(area);
 
         // Top layout
@@ -687,4 +715,32 @@ fn create_grid(area: Rect, rows: u16, columns: u16) -> Vec<Rect> {
     }
 
     cells
+}
+
+/// Calculates the number of rows/columns that can fit the given number of
+/// elements in a grid of the given aspect ratio. The aspect ratio should be
+/// two floats that describe the aspect ratio; i.e. (4.0, 3.0) would be a 4:3
+/// aspect ratio. Returns the width and height of the grid: (w, h).
+fn calculate_rows_columns(element_count: usize, width_ratio: f64, height_ratio: f64) -> (u16, u16) {
+    // Calculate the number of rows and columns as if we were going to fit them
+    // into a square grid.
+    let rows_columns = (element_count as f64).sqrt().ceil();
+
+    // Scale the width/height of the square grid based on the aspect ratio.
+    let mut width = (rows_columns * (width_ratio / height_ratio))
+        .ceil()
+        .max(1.0);
+    let mut height = (rows_columns * (height_ratio / width_ratio))
+        .ceil()
+        .max(1.0);
+
+    // Fit the exact number of elements, if possible
+    if width == 1.0 {
+        height = element_count as f64;
+    }
+    if height == 1.0 {
+        width = element_count as f64;
+    }
+
+    (width as u16, height as u16)
 }
