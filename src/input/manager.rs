@@ -2,7 +2,6 @@ use core::panic;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
-use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -18,9 +17,9 @@ use zbus::zvariant::ObjectPath;
 use zbus::Connection;
 
 use crate::bluetooth::device1::Device1Proxy;
-use crate::config::path::get_capability_maps_paths;
+use crate::config::capability_map::load_capability_mappings;
 use crate::config::path::get_devices_paths;
-use crate::config::CapabilityMap;
+use crate::config::path::get_multidir_sorted_files;
 use crate::config::CompositeDeviceConfig;
 use crate::config::SourceDevice;
 use crate::constants::BUS_PREFIX;
@@ -56,6 +55,12 @@ use crate::watcher::WatchEvent;
 const DEV_PATH: &str = "/dev";
 const INPUT_PATH: &str = "/dev/input";
 const BUFFER_SIZE: usize = 20480;
+const VIRT_DEVICE_WHITELIST: &[&str] = &[
+    "Sunshine PS5 (virtual) pad",
+    "Sunshine X-Box One (virtual) pad",
+    "Sunshine gamepad (virtual) motion sensors",
+    "Sunshine Nintendo (virtual) pad",
+];
 
 #[derive(Error, Debug)]
 pub enum ManagerError {
@@ -529,7 +534,7 @@ impl Manager {
         // Lookup the capability map associated with this config if it exists
         let capability_map = if let Some(map_id) = config.capability_map_id.clone() {
             log::debug!("Found capability mapping in config: {}", map_id);
-            let capability_map = self.load_capability_mappings().await;
+            let capability_map = load_capability_mappings();
             capability_map.get(&map_id).cloned()
         } else {
             None
@@ -1210,11 +1215,20 @@ impl Manager {
                         }
                     };
 
-                    if !is_bluetooth {
+                    // Some virtual gamepads we DO want to manage
+                    let device_name = device.get_attribute_from_tree("name").unwrap_or_default();
+                    let is_whitelisted = VIRT_DEVICE_WHITELIST.contains(&device_name.as_str());
+
+                    if !is_bluetooth && !is_whitelisted {
                         log::debug!("{dev_name} ({dev_sysname}) is virtual, skipping consideration for {dev_path}");
                         return Ok(());
                     }
-                    log::debug!("{dev_name} ({dev_sysname}) is a virtual device node for a bluetooth device. Treating as real - {dev_path}")
+                    if is_bluetooth {
+                        log::debug!("{dev_name} ({dev_sysname}) is a virtual device node for a bluetooth device. Treating as real - {dev_path}");
+                    }
+                    if is_whitelisted {
+                        log::debug!("{dev_name} ({dev_sysname}) is a virtual device node for a whitelisted device. Treating as real - {dev_path}")
+                    }
                 } else {
                     log::trace!("{dev_name} ({dev_sysname}) is a real device - {dev_path}");
                 }
@@ -1688,94 +1702,33 @@ impl Manager {
         Ok(())
     }
 
-    /// Loads all capability mappings in all default locations and returns a hashmap
-    /// of the CapabilityMap ID and the [CapabilityMap].
-    pub async fn load_capability_mappings(&self) -> HashMap<String, CapabilityMap> {
-        let mut mappings = HashMap::new();
-        let paths = get_capability_maps_paths();
-
-        // Look for capability mappings in all known locations
-        for path in paths.iter() {
-            let files = fs::read_dir(path);
-            if files.is_err() {
-                log::trace!("Failed to load directory {path:?}: {}", files.unwrap_err());
-                continue;
-            }
-            let mut files: Vec<_> = files.unwrap().map(|r| r.unwrap()).collect();
-            files.sort_by_key(|dir| dir.file_name());
-
-            // Look at each file in the directory and try to load them
-            for file in files {
-                let filename = file.file_name();
-                let filename = filename.as_os_str().to_str().unwrap();
-
-                // Skip any non-yaml files
-                if !filename.ends_with(".yaml") {
-                    continue;
-                }
-
-                // Try to load the composite device profile
-                log::trace!("Found file: {}", file.path().display());
-                let mapping = CapabilityMap::from_yaml_file(file.path().display().to_string());
-                if mapping.is_err() {
-                    log::warn!(
-                        "Failed to parse capability mapping: {}",
-                        mapping.unwrap_err()
-                    );
-                    continue;
-                }
-                let map = mapping.unwrap();
-                mappings.insert(map.id.clone(), map);
-            }
-        }
-
-        mappings
-    }
-
     /// Looks in all default locations for [CompositeDeviceConfig] definitions and
     /// load/parse them. Returns an array of these configs which can be used
     /// to automatically create a [CompositeDevice].
     pub async fn load_device_configs(&self) -> Vec<CompositeDeviceConfig> {
         let task = task::spawn_blocking(move || {
+            log::trace!("Loading device configurations");
             let mut devices: Vec<CompositeDeviceConfig> = Vec::new();
             let paths = get_devices_paths();
+            let files = get_multidir_sorted_files(paths.as_slice(), |entry| {
+                entry.path().extension().unwrap_or_default() == "yaml"
+            });
 
-            // Look for composite device profiles in all known locations
-            for path in paths.iter() {
-                log::trace!("Checking {path:?} for composite device configs");
-                let files = fs::read_dir(path);
-                if files.is_err() {
-                    log::debug!("Failed to load directory {path:?}: {}", files.unwrap_err());
+            // Look at each file in the directory and try to load them
+            for file in files {
+                // Try to load the composite device profile
+                log::trace!("Found file: {}", file.display());
+                let device = CompositeDeviceConfig::from_yaml_file(file.display().to_string());
+                if device.is_err() {
+                    log::warn!(
+                        "Failed to parse composite device config '{}': {}",
+                        file.display(),
+                        device.unwrap_err()
+                    );
                     continue;
                 }
-                let mut files: Vec<_> = files.unwrap().map(|r| r.unwrap()).collect();
-                files.sort_by_key(|dir| dir.file_name());
-
-                // Look at each file in the directory and try to load them
-                for file in files {
-                    let filename = file.file_name();
-                    let filename = filename.as_os_str().to_str().unwrap();
-
-                    // Skip any non-yaml files
-                    if !filename.ends_with(".yaml") {
-                        continue;
-                    }
-
-                    // Try to load the composite device profile
-                    log::trace!("Found file: {}", file.path().display());
-                    let device =
-                        CompositeDeviceConfig::from_yaml_file(file.path().display().to_string());
-                    if device.is_err() {
-                        log::warn!(
-                            "Failed to parse composite device config '{}': {}",
-                            file.path().display(),
-                            device.unwrap_err()
-                        );
-                        continue;
-                    }
-                    let device = device.unwrap();
-                    devices.push(device);
-                }
+                let device = device.unwrap();
+                devices.push(device);
             }
 
             devices

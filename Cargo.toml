@@ -1,6 +1,6 @@
 [package]
 name = "inputplumber"
-version = "0.49.2"
+version = "0.52.1"
 edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Open source input manager for Linux"
@@ -22,6 +22,10 @@ auto-req = "no"
 [package.metadata.generate-rpm.requires]
 libiio = "*"
 libevdev = "*"
+
+[[bin]]
+name = "generate"
+path = "./src/generate.rs"
 
 [dependencies]
 clap = { version = "4.5.29", features = ["derive", "string"] }
@@ -47,14 +51,16 @@ packed_struct = "0.10.1"
 procfs = "0.17.0"
 rand = "0.9.0"
 ratatui = "0.29.0"
+schemars = "0.8.22"
 serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.140"
 serde_yaml = "0.9.34"
 tabled = { version = "0.18.0", features = ["ansi"] }
 thiserror = "1.0.69"
 tokio = { version = "1.43.0", features = ["full"] }
 udev = { version = "0.9.3", features = ["mio"] }
 uhid-virt = "0.0.8"
-virtual-usb = { git = "https://github.com/ShadowBlip/virtual-usb-rs.git", rev = "4bca5c6fb9f2b63944a286854405e3e7e0b5d259" }
+virtual-usb = { git = "https://github.com/ShadowBlip/virtual-usb-rs.git", rev = "5c4c551a23b56f627a36d6775a5876c174be9eb3" }
 xdg = "2.5.2"
 zbus = { version = "5.5.0", default-features = false, features = ["tokio"] }
 zbus_macros = "5.5.0"
